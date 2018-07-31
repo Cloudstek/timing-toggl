@@ -1,0 +1,19 @@
+{
+    "name": "cloudstek/timing-toggl",
+    "description": "Convert timing CSV exports to Toggl CSV files for import",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Maarten de Boer",
+            "email": "maarten@cloudstek.nl"
+        }
+    ],
+    "autoload": {
+        "psr-4": {
+            "App\\": "src/"
+        }
+    },
+    "require": {
+        "symfony/console": "^4.1"
+    }
+}
