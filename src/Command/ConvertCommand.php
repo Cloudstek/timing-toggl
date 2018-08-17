@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Command;
 
 use PhpOffice\PhpSpreadsheet\IOFactory;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Writer\Csv as CsvWriter;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
@@ -71,11 +73,17 @@ class ConvertCommand extends Command
         $projectName = $input->hasOption('project') ? $input->getOption('project') : null;
 
         // Get file reader
-        $fileReader = IOFactory::createReaderForFile($input->getArgument('input'));
-        $inputFile = $fileReader->load($input->getArgument('input'));
+        try {
+            $fileReader = IOFactory::createReaderForFile($input->getArgument('input'));
+            $inputFile = $fileReader->load($input->getArgument('input'));
 
-        // Read file into array
-        $inputFile = $inputFile->getActiveSheet()->toArray(null, false, false, false);
+            // Read file into array
+            $inputFile = $inputFile->getActiveSheet()->toArray(null, false, false, false);
+        } catch (\Throwable $ex) {
+            $io->error($ex->getMessage());
+
+            return 1;
+        }
 
         // Map headers to create associative array
         $headers = array_map('strtolower', array_shift($inputFile));
@@ -164,20 +172,16 @@ class ConvertCommand extends Command
      */
     private function writeTogglOutput(string $file, array $data): void
     {
-        $fp = fopen($file, 'w');
+        // Add headers row
+        array_unshift($data, array_keys($data[0]));
 
-        if ($fp === false) {
-            throw new \Exception(sprintf('Could not open "%s" for writing.', $file));
-        }
+        // Turn data into spreadsheet
+        $spreadsheet = new Spreadsheet();
+        $worksheet = $spreadsheet->getActiveSheet();
+        $worksheet->fromArray($data);
 
-        // Write headers row
-        fputcsv($fp, array_keys($data[0]));
-
-        // Write rows
-        foreach ($data as $row) {
-            fputcsv($fp, $row);
-        }
-
-        fclose($fp);
+        // Write as CSV file
+        $csv = new CsvWriter($spreadsheet);
+        $csv->save($file);
     }
 }
