@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ruleset name="TimingToggl">
+    <config name="php_version" value="70200" />
+    <config name="ignore_warnings_on_exit" value="1" />
+    <config name="default_standard" value="PSR2" />
+    <config name="installed_paths" value="../../slevomat/coding-standard,../../escapestudios/symfony2-coding-standard"/>
+
+    <!-- Files -->
+    <file>./src</file>
+
+    <!-- PSR-2 -->
+    <rule ref="PSR2" />
+
+    <rule ref="Symfony">
+        <exclude name="Symfony.Commenting.License.Warning" />
+        <exclude name="Symfony.Arrays.MultiLineArrayComma.Invalid" />
+        <exclude name="Symfony.ControlStructure.YodaConditions.Invalid" />
+        <exclude name="Symfony.Functions.Arguments.Invalid" />
+        <exclude name="Generic.Files.LineLength.TooLong" />
+    </rule>
+
+    <!-- Check FQDN with file path -->
+    <rule ref="SlevomatCodingStandard.Files.TypeNameMatchesFileName">
+        <properties>
+            <property name="rootNamespaces" type="array" value="src=>App"/>
+        </properties>
+    </rule>
+
+    <rule ref="Generic.Files.LineLength.MaxExceeded">
+        <type>warning</type>
+    </rule>
+
+</ruleset>
