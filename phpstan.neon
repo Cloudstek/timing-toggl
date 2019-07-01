@@ -1,7 +1,11 @@
+includes:
+    - vendor/phpstan/phpstan-deprecation-rules/rules.neon
+
 parameters:
+    level: max
+    paths:
+        - %currentWorkingDirectory%/src
     reportUnmatchedIgnoredErrors: false
     ignoreErrors:
         - '#Function igbinary_.+ not found.#'
         - '#Function sodium_memzero invoked with 1 parameter, 2 required.#'
-    excludes_analyse:
-      - %currentWorkingDirectory%/src/Migrations/*

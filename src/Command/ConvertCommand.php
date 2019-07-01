@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Command;
 
+use App\Exception\UnsupportedFileTypeException;
+use Carbon;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Csv as CsvWriter;
@@ -29,14 +31,15 @@ class ConvertCommand extends Command
         $this
             ->setName('convert')
             ->setDescription('Convert timing CSV exports to Toggl CSV files for import.')
-            ->addArgument('input', InputArgument::REQUIRED, 'Input CSV file (Timing export)')
-            ->addArgument('output', InputArgument::REQUIRED, 'Ouput CSV file')
+            ->addArgument('input', InputArgument::REQUIRED, 'Input JSON/CSV file (Timing export)')
+            ->addArgument('output', InputArgument::REQUIRED, 'Ouput CSV file or - for stdout')
             ->addOption('email', 'e', InputOption::VALUE_OPTIONAL, 'Toggl account email')
             ->addOption('project', 'p', InputOption::VALUE_OPTIONAL, 'Override project name')
         ;
 
         $this
             ->addUsage('examples/input.csv examples/output.csv')
+            ->addUsage('examples/input.json examples/output.csv')
             ->addUsage('-e foo@example.org -p "Test Project" examples/input.csv examples/output.csv')
         ;
     }
@@ -48,15 +51,26 @@ class ConvertCommand extends Command
     {
         $io = new SymfonyStyle($input, $output);
 
+        /** @var string|null $inputFile */
+        $inputFile = $input->getArgument('input');
+        /** @var string|null $outputFile */
+        $outputFile = $input->getArgument('output');
+
         // Check if input file exists
-        if (!file_exists($input->getArgument('input'))) {
-            $io->error(sprintf('Could not find input file "%s".', $input->getArgument('input')));
+        if (empty($inputFile) || file_exists($inputFile) === false) {
+            $io->error(sprintf('Could not find input file "%s".', $inputFile));
 
             return 1;
         }
 
-        // Check if output file exists
-        if (file_exists($input->getArgument('output'))) {
+        // Check output file
+        if (empty($outputFile)) {
+            $io->error('Invalid output specified.');
+
+            return 1;
+        }
+
+        if ($outputFile !== '-' && file_exists($outputFile)) {
             $overwrite = $io->confirm('Output file exist, overwrite?', false);
 
             if ($overwrite !== true) {
@@ -70,73 +84,50 @@ class ConvertCommand extends Command
         $togglEmail = $this->getTogglEmail($input, $output);
 
         // Project name
+        /** @var string|null $projectName */
         $projectName = $input->hasOption('project') ? $input->getOption('project') : null;
-
-        // Get file reader
-        try {
-            $fileReader = IOFactory::createReaderForFile($input->getArgument('input'));
-            $inputFile = $fileReader->load($input->getArgument('input'));
-
-            // Read file into array
-            $inputFile = $inputFile->getActiveSheet()->toArray(null, false, false, false);
-        } catch (\Throwable $ex) {
-            $io->error($ex->getMessage());
-
-            return 1;
-        }
-
-        // Map headers to create associative array
-        $headers = array_map('strtolower', array_shift($inputFile));
-        $inputFile = array_map(function ($v) use ($headers) {
-            return array_combine($headers, $v);
-        }, $inputFile);
-
-        // Create output data
-        $outputFile = [];
 
         // Flag to indicate that rows have been skipped and a warning should be shown
         $skippedRows = false;
 
-        // Convert data
-        foreach ($inputFile as $row) {
-            if ($row === null || !is_array($row)) {
-                $skippedRows = true;
-                continue;
-            }
+        // Output data
+        try {
+            $result = $this->readInput($inputFile, $togglEmail, $projectName);
 
-            $startDate = new \DateTimeImmutable($row['start date']);
-            $duration = new \DateInterval(sprintf('PT%dH%dM%dS', ...explode(':', $row['duration'])));
-
-            $outputFile[] = [
-                'Email' => $togglEmail,
-                'Project' => $projectName ?? $row['project'],
-                'Description' => $row['task title'],
-                'Start date' => $startDate->format('Y-m-d'),
-                'Start time' => $startDate->format('H:i:s'),
-                'Duration' => $duration->format('%H:%I:%S')
-            ];
+            $outputData = $result['data'];
+            $skippedRows = $result['skipped'];
+        } catch (\Exception $ex) {
+            $io->error($ex->getMessage());
         }
 
         // Clean up
         unset($inputFile);
 
+        if (empty($outputData)) {
+            $io->warning('Input file did not contain any data!');
+
+            return 0;
+        }
+
         // Write output
         try {
-            $this->writeTogglOutput($input->getArgument('output'), $outputFile);
+            $this->writeTogglOutput($outputFile, $outputData);
         } catch (\Throwable $ex) {
             $io->error($ex->getMessage());
 
             return 1;
         }
 
-        if ($skippedRows === true) {
-            $io->warning('Some rows might have been skipped due to errors, please check the output file before importing');
+        if ($outputFile !== '-') {
+            if ($skippedRows === true) {
+                $io->warning('Some rows might have been skipped due to errors, please check the output file before importing');
+            }
+
+            $io->success(sprintf('%d entries have been written.', count($outputData)));
         }
 
-        $io->success(sprintf('%d entries have been written.', count($outputFile)));
-
         // Clean up
-        unset($outputFile);
+        unset($outputData);
 
         return 0;
     }
@@ -172,6 +163,16 @@ class ConvertCommand extends Command
      */
     private function writeTogglOutput(string $file, array $data): void
     {
+        $outputFile = $file;
+
+        if ($file === '-') {
+            $outputFile = tempnam(sys_get_temp_dir(), 'timingtoggl');
+
+            if ($outputFile === false) {
+                throw new \Exception('Could not create temporary file for writing.');
+            }
+        }
+
         // Add headers row
         array_unshift($data, array_keys($data[0]));
 
@@ -182,6 +183,139 @@ class ConvertCommand extends Command
 
         // Write as CSV file
         $csv = new CsvWriter($spreadsheet);
-        $csv->save($file);
+        $csv->save($outputFile);
+
+        if ($file === '-') {
+            echo file_get_contents($outputFile);
+
+            @unlink($outputFile);
+        }
+    }
+
+    /**
+     * Read input file.
+     *
+     * @param string      $file
+     * @param string      $email
+     * @param string|null $project
+     *
+     * @return array
+     */
+    private function readInput(string $file, string $email, ?string $project = null): array
+    {
+        // Input file extension
+        $extension = strtolower(pathinfo($file, \PATHINFO_EXTENSION));
+
+        switch ($extension) {
+            case 'json':
+                return $this->readJson($file, $email, $project);
+            case 'csv':
+                return $this->readCsv($file, $email, $project);
+            default:
+                throw new UnsupportedFileTypeException();
+        }
+    }
+
+    /**
+     * Read Timing JSON export.
+     *
+     * @param string      $file    Input file
+     * @param string      $email   Email address
+     * @param string|null $project Project name (override)
+     *
+     * @return array
+     */
+    private function readJson(string $file, string $email, ?string $project = null): array
+    {
+        // Read file
+        $fileContents = file_get_contents($file);
+
+        if ($fileContents === false) {
+            throw new \Exception(sprintf('Could not read file "%s".', $file));
+        }
+
+        // Parse data
+        $items = json_decode($fileContents, true);
+
+        // Create output data
+        $outputData = [];
+
+        // Convert data
+        foreach ($items as $item) {
+            $startDate = new Carbon\Carbon($item['startDate']);
+            $startDate->tz('UTC');
+            $duration = new \DateInterval(sprintf('PT%dH%dM%dS', ...explode(':', $item['duration'])));
+
+            $outputData[] = [
+                'Email' => $email,
+                'Project' => $project ?? $item['project'],
+                'Description' => $item['taskActivityTitle'],
+                'Start date' => $startDate->format('Y-m-d'),
+                'Start time' => $startDate->format('H:i:s'),
+                'Duration' => $duration->format('%H:%I:%S')
+            ];
+        }
+
+        return [
+            'skipped' => false,
+            'data' => $outputData
+        ];
+    }
+
+    /**
+     * Read Timing CSV export.
+     *
+     * @param string      $file    Input file
+     * @param string      $email   Email address
+     * @param string|null $project Project name (override)
+     *
+     * @return array
+     */
+    private function readCsv(string $file, string $email, ?string $project = null): array
+    {
+        // Get file reader
+        $fileReader = IOFactory::createReaderForFile($file);
+        $inputFile = $fileReader->load($file);
+
+        // Read file into array
+        $inputFile = $inputFile->getActiveSheet()->toArray(null, false, false, false);
+
+        // Map headers to create associative array
+        $headers = array_map('strtolower', array_shift($inputFile));
+        $inputFile = array_map(function ($v) use ($headers) {
+            return array_combine($headers, $v);
+        }, $inputFile);
+
+        // Create output data
+        $outputData = [];
+
+        // Flag to indicate that rows have been skipped and a warning should be shown
+        $skippedRows = false;
+
+        // Convert data
+        foreach ($inputFile as $row) {
+            if ($row === null || !is_array($row)) {
+                $skippedRows = true;
+                continue;
+            }
+
+            $startDate = new Carbon\Carbon($row['start date']);
+            $startDate->tz('UTC');
+            $duration = new \DateInterval(sprintf('PT%dH%dM%dS', ...explode(':', $row['duration'])));
+
+            $outputData[] = [
+                'Email' => $email,
+                'Project' => $project ?? $row['project'],
+                'Description' => $row['task title'],
+                'Start date' => $startDate->format('Y-m-d'),
+                'Start time' => $startDate->format('H:i:s'),
+                'Duration' => $duration->format('%H:%I:%S')
+            ];
+        }
+
+        return [
+            'skipped' => $skippedRows,
+            'data' => $outputData
+        ];
     }
 }
