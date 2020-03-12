@@ -3,7 +3,7 @@ Simple PHP CLI tool to convert CSV export files from [Timing](https://timingapp.
 
 ## Requirements
 
-* PHP 7+
+* PHP 7.3+
 * Composer
 
 ## Getting started

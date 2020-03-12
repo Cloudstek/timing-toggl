@@ -2,6 +2,7 @@
     "name": "cloudstek/timing-toggl",
     "description": "Convert timing CSV exports to Toggl CSV files for import",
     "license": "MIT",
+    "version": "2.0.0",
     "authors": [
         {
             "name": "Maarten de Boer",
@@ -14,10 +15,11 @@
         }
     },
     "require": {
+        "ext-json": "*",
+        "php": ">=7.3",
         "symfony/console": "^4.3",
         "phpoffice/phpspreadsheet": "^1.4",
         "phpstan/phpstan-shim": "^0.11.8",
-        "slevomat/coding-standard": "^5.0",
         "symfony/mime": "^4.3",
         "nesbot/carbon": "^2.20"
     },
@@ -25,6 +27,7 @@
         "friendsofphp/php-cs-fixer": "^2.12",
         "squizlabs/php_codesniffer": "^3.3",
         "escapestudios/symfony2-coding-standard": "^3.4",
-        "phpstan/phpstan-deprecation-rules": "^0.11.2"
+        "phpstan/phpstan-deprecation-rules": "^0.11.2",
+        "slevomat/coding-standard": "^6.1"
     }
 }
