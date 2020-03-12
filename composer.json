@@ -2,6 +2,7 @@
     "name": "cloudstek/timing-toggl",
     "description": "Convert timing CSV exports to Toggl CSV files for import",
     "license": "MIT",
+    "version": "2.0.0",
     "authors": [
         {
             "name": "Maarten de Boer",
