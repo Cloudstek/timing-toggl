@@ -249,7 +249,7 @@ class ConvertCommand extends Command
             $outputData[] = [
                 'Email' => $email,
                 'Project' => $project ?? $item['project'],
-                'Description' => $item['taskActivityTitle'],
+                'Description' => $item['activityTitle'] ?? $item['taskActivityTitle'],
                 'Start date' => $startDate->format('Y-m-d'),
                 'Start time' => $startDate->format('H:i:s'),
                 'Duration' => $duration->format('%H:%I:%S')
