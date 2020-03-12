@@ -10,7 +10,7 @@ use Symfony\Component\Console\Application;
 $convertCommand = new ConvertCommand();
 
 // Create application
-$app = new Application('timing-toggl', '1.0.0');
+$app = new Application('timing-toggl', '1.2.0');
 $app->add($convertCommand);
 $app->setDefaultCommand($convertCommand->getName(), true);
 
